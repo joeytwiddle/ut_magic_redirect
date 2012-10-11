@@ -4,8 +4,8 @@ ut_magic_redirect
 A UT redirect server which can serve files sourced from multiple remote redirects.
 
 It's a sort of proxying merging web-server.  You give it a list of redirect
-URLs, and when a file is requested, it tries each of the redirect until it
-finds the file.  Then it pipes it to any clients that are asking for it.
+URLs, and when a file is requested, it tries each redirect until it finds the
+file.  Then it pipes it to any clients that are asking for it.
 
 The current version requires no disk space, as it does not have a disk cache,
 but obviously it should be placed on a machine with fast network.
