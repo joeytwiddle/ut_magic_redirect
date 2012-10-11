@@ -15,7 +15,7 @@ And you have all you need!
 
 == Configuration ==
 
-Edit the list of redirects in ut_magic_redirect.coffee
+Edit the listenPort and the list of redirects in ut_magic_redirect.coffee
 
 == Running ==
 

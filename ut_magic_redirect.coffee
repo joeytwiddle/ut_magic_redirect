@@ -15,8 +15,10 @@ appStatus =
 	cache: {}
 	options:
 		redirectList: [
-			"http://neuralyte.org/~joey/ut_files/"
-			"http://hwi.ath.cx/ut_files/"
+			"http://uz.ut-files.com/"
+			"http://liandri.com/redirect/UT99/"
+			"http://5.45.182.78/uz/"
+			# ... add more here ...
 		]
 
 LOG = (x...) -> console.log(x...)
