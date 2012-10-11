@@ -9,7 +9,7 @@ appName = "UT Magic Redirect"
 # TODO: Write to and read from a disk-cache, and cache maintainance.
 # TODO: Hold (persistent?) "hint" data, which tells us where we have previously seen a file, so we can try that redirect first and avoid hitting 404s on the others.
 
-listenPort = 8080
+listenPort = 4567
 
 http = require('http')
 net = require('net')
