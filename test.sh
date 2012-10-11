@@ -2,3 +2,6 @@
 for X in `seq 1 5`
 do wget http://localhost:8080/SaveMe.umx.uz -O result-$X &
 done
+# Retrieved files should all match.
+wait
+cksum result-*
