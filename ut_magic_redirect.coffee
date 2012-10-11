@@ -3,6 +3,9 @@ appName = "UT Magic Redirect"
 # A UT redirect server which can serve files sourced from multiple remote redirects.
 # Copyright 2012 Paul Clark released under AGPL
 
+# This version does not cache retrieved files on disk anywhere, or have any persistent data.
+# However it does keep file data (blobs) in memory whilst the file is still streaming.
+
 listenPort = 8080
 
 http = require('http')
@@ -46,6 +49,7 @@ getCacheEntry = (filename) ->
 			status: "unknown"
 			attachedClients: []
 			blobsReceived: []
+		appStatus.cache[filename] = cacheEntry
 	return cacheEntry
 
 serveUTFile = (filename, request, response) ->
@@ -108,6 +112,9 @@ lookFor = (filename, cacheEntry, request, response) ->
 						## For the moment, do nothing
 						cacheEntry.blobsReceived = []
 						cacheEntry.status = "unknown"
+						## We could keeps the blobs around, and set the status="in_memory"
+						## But we will want to clean up memory now and then!
+						## For that extra complexity, we may as well start maintaining a disk cache.
 			outgoingRequest.end()
 	tryNext()
 
