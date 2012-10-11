@@ -6,6 +6,9 @@ appName = "UT Magic Redirect"
 # This version does not cache retrieved files on disk anywhere, or have any persistent data.
 # However it does keep file data (blobs) in memory whilst the file is still streaming.
 
+# TODO: Write to and read from a disk-cache, and cache maintainance.
+# TODO: Hold (persistent?) "hint" data, which tells us where we have previously seen a file, so we can try that redirect first and avoid hitting 404s on the others.
+
 listenPort = 8080
 
 http = require('http')
@@ -15,8 +18,10 @@ appStatus =
 	cache: {}
 	options:
 		redirectList: [
-			"http://neuralyte.org/~joey/ut_files/"
-			"http://hwi.ath.cx/ut_files/"
+			"http://uz.ut-files.com/"
+			"http://liandri.com/redirect/UT99/"
+			"http://5.45.182.78/uz/"
+			# ... add more here ...
 		]
 
 LOG = (x...) -> console.log(x...)
