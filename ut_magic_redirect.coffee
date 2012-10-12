@@ -113,18 +113,26 @@ actionForStatus =
 	cannot_find: null
 
 
+# I wrapped all client output in try-catch, just in case it errors on premature
+# client disconnect, although I have never seen such errors!
 pipeStream = (filename,incomingResponse,cacheEntry) ->
 	LOG("<< Sending "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 	httpResponseHeaders = incomingResponse.headers
 	for client in cacheEntry.attachedClients
-		client.writeHead(200, httpResponseHeaders)
+		try client.writeHead(200, httpResponseHeaders)
+		catch e
+			LOG("Error on client.writeHead",e)
 	incomingResponse.on 'data', (data) ->
 		cacheEntry.blobsReceived.push(data)
 		for client in cacheEntry.attachedClients
-			client.write(data)
+			try client.write(data)
+			catch e
+				LOG("Error on client.write",e)
 	incomingResponse.on 'end', () ->
 		for client in cacheEntry.attachedClients
-			client.end()
+			try client.end()
+			catch e
+				LOG("Error on client.end",e)
 		LOG(" * Served "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 		LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
 		cacheEntry.attachedClients = []
