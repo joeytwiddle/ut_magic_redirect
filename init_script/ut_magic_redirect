@@ -144,6 +144,15 @@ do_stop()
 	#   1 if daemon was already stopped
 	#   2 if daemon could not be stopped
 	#   other if a failure occurred
+
+	## FIX: start-stop-daemon does successfully kill the bash process that started our service
+	## However it does not kill the actual child process (in my case coffee called node)
+	bashPID=`cat $PIDFILE`
+	if [ -n "$bashPID" ]
+	then pkill -P "$bashPID"   ## Kill any process whos parent is our bash call
+	fi
+	## end FIX
+
 	start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE  --chuid $NODEUSER --exec /bin/bash
 	RETVAL="$?"
 	#[ "$VERBOSE" != no ] && [ "$RETVAL" = 1 ] && log_daemon_msg  "  --->  SIGKILL failed => hardkill $DESC" "$INIT_SCRIPT_NAME_NOEXT"
