@@ -1,4 +1,4 @@
-ut_magic_redirect
+UT Magic Redirect
 =================
 
 A UT redirect server which can serve files sourced from multiple remote redirects.
