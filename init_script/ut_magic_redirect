@@ -144,7 +144,7 @@ do_stop()
 	#   1 if daemon was already stopped
 	#   2 if daemon could not be stopped
 	#   other if a failure occurred
-	start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE  --chuid $NODEUSER --exec $DAEMON
+	start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE  --chuid $NODEUSER --exec /bin/bash
 	RETVAL="$?"
 	#[ "$VERBOSE" != no ] && [ "$RETVAL" = 1 ] && log_daemon_msg  "  --->  SIGKILL failed => hardkill $DESC" "$INIT_SCRIPT_NAME_NOEXT"
 	[ "$RETVAL" = 2 ] && return 2
@@ -154,7 +154,7 @@ do_stop()
 	# that waits for the process to drop all resources that could be
 	# needed by services started subsequently.  A last resort is to
 	# sleep for some time.
-	start-stop-daemon --stop --quiet --oknodo --retry=0/3/KILL/5 --pidfile $PIDFILE  --chuid $NODEUSER --exec $DAEMON -- $DAEMON_ARGS
+	start-stop-daemon --stop --quiet --oknodo --retry=0/3/KILL/5 --pidfile $PIDFILE  --chuid $NODEUSER --exec /bin/bash -- -l -c "$DAEMON_ARGS $DAEMON_ARGS > $LOGFILE 2>&1"
 	[ "$?" = 2 ] && return 2
 	# Many daemons don't delete their pidfiles when they exit.
 	rm -f $PIDFILE
@@ -211,7 +211,7 @@ do_status() {
 }
 
 running() {
-  RUNSTAT=$(start-stop-daemon --start --quiet --pidfile $PIDFILE --chuid $NODEUSER --background --exec $DAEMON --test > /dev/null)
+  RUNSTAT=$(start-stop-daemon --start --quiet --pidfile $PIDFILE --chuid $NODEUSER --background --exec /bin/bash --test > /dev/null)
   if [ "$?" = 1 ]; then
     echo y
   fi
