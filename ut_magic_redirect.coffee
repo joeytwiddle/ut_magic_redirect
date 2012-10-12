@@ -13,17 +13,20 @@ listenPort = 4567
 
 http = require('http')
 
+
 appStatus =
 	cache: {}
 	options:
 		redirectList: [
 			"http://uz.ut-files.com/"
 			"http://liandri.com/redirect/UT99/"
-			"http://5.45.182.78/uz/"
 			# ... add more here ...
+			"http://5.45.182.78/uz/"
 		]
 
+
 LOG = (x...) -> console.log(x...)
+
 
 mainRequestHandler = (request, response) ->
 	try
