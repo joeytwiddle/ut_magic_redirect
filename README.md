@@ -13,7 +13,9 @@ but obviously it should be placed on a machine with fast network.
 
 # Installation
 
-To use this you need to install Node and put it on your PATH.
+To use this you need to install Node and put it on your PATH.  I do:
+
+    % echo 'export PATH="$PATH:/opt/node/bin"' >> /home/redirect/.bashrc
 
 Then grab coffeescript:
 
