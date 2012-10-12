@@ -12,7 +12,6 @@ appName = "UT Magic Redirect"
 listenPort = 4567
 
 http = require('http')
-net = require('net')
 
 appStatus =
 	cache: {}
@@ -29,23 +28,32 @@ LOG = (x...) -> console.log(x...)
 mainRequestHandler = (request, response) ->
 	try
 		url = require("url").parse(request.url,true)
+		LOG(">> "+request.method+" "+url.pathname+" from "+request.socket.remoteAddress)
 		filename = url.pathname
 		if filename[0] != "/"
 			LOG("Odd - missing leading / in path: url="+url+" path="+url.pathname)
 		else
 			filename = filename.slice(1)
+		# We are expecting a single filename, no subdirectories
 		if filename.indexOf("/")>=0
-			LOG("Unexpected / in filename: "+filename)
-			LOG("We don't serve this kind of request: "+request.method+" "+request.url)
-			response.writeHead(501,"text/plain")
-			response.end("We don't serve that kind of thing here, sir.\n")
+			failWithError(501,response,"We don't serve that kind of thing here, sir.")
 		else
-			serveUTFile(filename, request, response)
+			serveFile(filename, request, response)
 	catch e
 		LOG("Error handling request: "+e)
 		response.writeHead(502,"text/plain")
 		response.end("Error handling request: "+e+"\n") # body allowed in 502?
 		throw e
+
+
+serveFile = (filename, request, response) ->
+	cacheEntry = getCacheEntry(filename)
+	action = actionForStatus[cacheEntry.status]
+	if !action
+		failWithError(501,response,"Cannot serve since cacheEntry.status="+cacheEntry.status)
+	else
+		action(filename, cacheEntry, request, response)
+
 
 getCacheEntry = (filename) ->
 	cacheEntry = appStatus.cache[filename]
@@ -57,80 +65,90 @@ getCacheEntry = (filename) ->
 		appStatus.cache[filename] = cacheEntry
 	return cacheEntry
 
-serveUTFile = (filename, request, response) ->
-	cacheEntry = getCacheEntry(filename)
-	if cacheEntry.status == "in_progress"
-		joinStream(filename, cacheEntry, request, response)
-	else if cacheEntry.status == "on_disk"
-		sendFromDisk(filename, cacheEntry, request, response)
-	else if cacheEntry.status == "unknown"
-		lookFor(filename, cacheEntry, request, response)
 
-lookFor = (filename, cacheEntry, request, response) ->
-	cacheEntry.status = "in_progress"
-	cacheEntry.attachedClients.push(response)
-	myList = appStatus.options.redirectList.slice(0)
-	tryNext = () ->
-		nextRedirect = myList.shift()
-		if !nextRedirect
-			LOG("FAILED ON ALL REDIRECTS, ABORTING: "+filename)
-			for client in cacheEntry.attachedClients
-				client.writeHead(404,"text/plain")
-				client.end("Sorry, not found on any redirects: "+filename)
-		else
-			targetHost = nextRedirect.split("/")[2]
-			targetURL = nextRedirect + filename
-			outgoingHeaders =
-				host: targetHost
-			LOG("|| >> GET "+targetURL)
-			ogrOptions =
-				method: "GET"
-				headers: outgoingHeaders
-				host: targetHost
-				path: "/" + filename ## WRONG!
-			# httpClient = http.createClient(80,outgoingHeaders.host)
-			outgoingRequest = http.request targetURL, (incomingResponse) ->
-			# outgoingRequest = http.request ogrOptions, (incomingResponse) ->
-				LOG("|| << Got response "+incomingResponse.statusCode)
-				if incomingResponse.statusCode != 200
-					LOG("|| That's a failure.")
-					tryNext()
-				else
-					## Someone is giving us a file - yippee!
-					httpResponseHeaders = {}
-					httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
-					for client in cacheEntry.attachedClients
-						client.writeHead(200, httpResponseHeaders)
-					incomingResponse.on 'data', (data) ->
-						cacheEntry.blobsReceived.push(data)
-						for client in cacheEntry.attachedClients
-							client.write(data)
-					incomingResponse.on 'end', () ->
-						for client in cacheEntry.attachedClients
-							client.end()
-						cacheEntry.attachedClients = []
-						## Now we might want to write the blobs to a file
-						# ...
-						# cacheEntry.blobsReceived = []
-						# cacheEntry.status = "on_disk"
-						#
-						## For the moment, do nothing
-						cacheEntry.blobsReceived = []
-						cacheEntry.status = "unknown"
-						## We could keeps the blobs around, and set the status="in_memory"
-						## But we will want to clean up memory now and then!
-						## For that extra complexity, we may as well start maintaining a disk cache.
-			outgoingRequest.end()
-	tryNext()
+Actions =
 
-joinStream = (filename, cacheEntry, request, response) ->
-	httpResponseHeaders = {}
-	httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
-	response.writeHead(200, httpResponseHeaders)
-	for data in cacheEntry.blobsReceived
-		response.write(data)
-	## We have given the client everything we got so far, but there may still be more to come
-	cacheEntry.attachedClients.push(response)
+	lookFor: (filename, cacheEntry, request, response) ->
+		cacheEntry.status = "in_progress"
+		cacheEntry.attachedClients.push(response)
+		myList = appStatus.options.redirectList.slice(0)
+		tryNext = () ->
+			nextRedirect = myList.shift()
+			if !nextRedirect
+				LOG("Failed to find \""+filename+"\" on any redirect, aborting "+cacheEntry.attachedClients.length+" clients.")
+				cacheEntry.status = "cannot_find"
+				for client in cacheEntry.attachedClients
+					failWithError(404,client,"Sorry, not found on any redirects: "+filename)
+			else
+				targetHost = nextRedirect.split("/")[2]
+				targetURL = nextRedirect + filename
+				LOG("|| >> GET "+targetURL)
+				outgoingRequest = http.request targetURL, (incomingResponse) ->
+					LOG("|| << Got response "+incomingResponse.statusCode)
+					if incomingResponse.statusCode != 200
+						LOG(" - That's a failure.")
+						tryNext()
+					else
+						## Someone is giving us a file - yippee!
+						LOG(" * Found "+filename+" on "+nextRedirect)
+						pipeStream(filename,incomingResponse,cacheEntry)
+				outgoingRequest.end()
+		tryNext()
+
+	joinStream: (filename, cacheEntry, request, response) ->
+		LOG("<< New client joining stream for "+filename+", sending "+cacheEntry.blobsReceived.length+" blobs.")
+		httpResponseHeaders = {}
+		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
+		response.writeHead(200, httpResponseHeaders)
+		for data in cacheEntry.blobsReceived
+			response.write(data)
+		## We have given the client everything we got so far, but there may still be more to come
+		cacheEntry.attachedClients.push(response)
+
+
+actionForStatus =
+	unknown:     Actions.lookFor
+	in_progress: Actions.joinStream
+	on_disk:     null # Actions.sendFromDisk
+	cannot_find: null
+
+
+pipeStream = (filename,incomingResponse,cacheEntry) ->
+	LOG("<< Sending "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
+	httpResponseHeaders = incomingResponse.headers
+	for client in cacheEntry.attachedClients
+		client.writeHead(200, httpResponseHeaders)
+	incomingResponse.on 'data', (data) ->
+		cacheEntry.blobsReceived.push(data)
+		for client in cacheEntry.attachedClients
+			client.write(data)
+	incomingResponse.on 'end', () ->
+		for client in cacheEntry.attachedClients
+			client.end()
+		LOG(" * Served "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
+		LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
+		cacheEntry.attachedClients = []
+		## Now we might want to write the blobs to a file
+		# ...
+		# cacheEntry.blobsReceived = []
+		# cacheEntry.status = "on_disk"
+		#
+		## For the moment, do nothing
+		cacheEntry.blobsReceived = []
+		cacheEntry.status = "unknown"
+		## We could keeps the blobs around, and set the status="in_memory"
+		## But we will want to clean up memory now and then!
+		## For that extra complexity, we may as well start maintaining a disk cache.
+
+
+failWithError = (errCode,response,message) ->
+	LOG("Failing client "+request.socket.remoteAddress+" with: "+message)
+	response.writeHead(errCode,"text/plain")
+	response.end(message+"\n")
+
+
+sumLengths = (bloblist) ->
+	bloblist.map( (blob) -> blob.length ).reduce( (a,b) -> a+b )
 
 
 http.createServer(mainRequestHandler).listen(listenPort)
