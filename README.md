@@ -39,13 +39,23 @@ reboot.
 
 # Init script
 
-There is one.  Debian users: put it in /etc/init.d/ and do:
+There is an init script included.  You will need to edit it to give it:
+
+- the path to node
+- the path to ut_magic_redirect.coffee
+- the user you want to run as
+
+Make the logfile writeable by whichever user you run it as:
+
+    % touch /var/log/ut_magic_redirect.log
+    % chown www-data:www-data /var/log/ut_magic_redirect.log
+
+Put the init script in /etc/init.d/.  I link it with:
+
+    % ln -s <path>/init_script/ut_magic_redirect /etc/init.d/
+
+Finally, Debian users can include it in the system statup with:
 
     % update-rc.d ut_magic_redirect defaults
 
-You will need to edit the init script to give it:
-
-- path to node
-- path to ut_magic_redirect.coffee
-- user you want to run as
 
