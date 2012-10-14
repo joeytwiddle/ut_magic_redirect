@@ -17,6 +17,8 @@ To use this you need to install Node and put it on your PATH.  I do:
 
     % echo 'export PATH="$PATH:/opt/node/bin"' >> /home/redirect/.bashrc
 
+for my user 'redirect'.
+
 Then grab coffeescript:
 
     % npm install -g coffee-script
@@ -50,7 +52,7 @@ There is an init script included.  You will need to edit it to give it:
 Make the logfile writeable by whichever user you run it as:
 
     % touch /var/log/ut_magic_redirect.log
-    % chown www-data:www-data /var/log/ut_magic_redirect.log
+    % chown redirect:redirect /var/log/ut_magic_redirect.log
 
 Put the init script in /etc/init.d/.  I link it with:
 
