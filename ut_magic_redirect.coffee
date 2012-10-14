@@ -1,4 +1,4 @@
-#!/usr/local/node/bin/coffee
+#!/usr/bin/env coffee
 appName = "UT Magic Redirect"
 # A UT redirect server which can serve files sourced from multiple remote redirects.
 # Copyright 2012 Paul Clark released under AGPL
@@ -12,34 +12,15 @@ appName = "UT Magic Redirect"
 fs = require('fs')
 http = require('http')
 
-configPath = "."
-
-optionsFile = configPath+"/options.conf"
-redirectsFile  = configPath+"/redirects.list"
-
 options =
 	listenPort: "4567"
 	validPath: "/([^/]\.(u|uz|u..))"
-
-try fs.readFileSync(optionsFile).split(/(\r|)\n/).forEach (line) ->
-	bits = line.split("/")
-	options[bits[0]] = bits[1]
-
-fs.writeFileSync(optionsFile, (for k,v of options then k+"="+v).join("\n") )
-
-try fs.readFileSync(redirectsFile).split(/(\r|)\n/)
-
-if !redirectList || !redirectList.length
-	redirectList = [
+	redirectList: [
 		"http://uz.ut-files.com/"
 		"http://liandri.com/redirect/UT99/"
 		"http://5.45.182.78/uz/"
 		# ... add more here ...
 	]
-
-fs.writeFileSync(redirectsFile,redirectList.join("\r\n"))
-
-	# If you want to use this for more general purpose mirroring, try validPath: "(.*)"
 
 appStatus =
 	cache: {}
@@ -94,7 +75,7 @@ Actions =
 	lookFor: (filename, cacheEntry, request, response) ->
 		cacheEntry.status = "in_progress"
 		cacheEntry.attachedClients.push(response)
-		myList = redirectList.slice(0)
+		myList = options.redirectList.slice(0)
 		tryNext = () ->
 			nextRedirect = myList.shift()
 			if !nextRedirect
