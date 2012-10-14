@@ -13,12 +13,13 @@ fs = require('fs')
 http = require('http')
 
 options =
-	listenPort: "4567"
-	validPath: "/([^/]\.(u|uz|u..))"
+	listenPort: 4567
+	validPath: "/([^/]*\\.(u|uz|u..))"
+	# If you want to use this proxy for more general purpose mirroring, try validPath: "/(.*)"
 	redirectList: [
+		"http://5.45.182.78/uz/"
 		"http://uz.ut-files.com/"
 		"http://liandri.com/redirect/UT99/"
-		"http://5.45.182.78/uz/"
 		# ... add more here ...
 	]
 
@@ -26,22 +27,20 @@ appStatus =
 	cache: {}
 
 
-LOG = (x...) -> console.log(x...)
+LOG = (x...) -> console.log("["+getDateString()+"]",x...)
+
+getDateString = -> Date().split(" ").slice(1,5).join(" ")
 
 
 mainRequestHandler = (request, response) ->
 	try
 		url = require("url").parse(request.url,true)
 		LOG(">> "+request.method+" "+url.pathname+" from "+request.socket.remoteAddress)
-		filename = url.pathname
-		if filename[0] != "/"
-			LOG("Odd - missing leading / in path: url="+url+" path="+url.pathname)
-		else
-			filename = filename.slice(1)
-		# We are expecting a single filename, no subdirectories
-		if filename.indexOf("/")>=0
+		match = url.pathname.match('^'+options.validPath+'$')
+		if !match
 			failWithError(501,response,"We don't serve that kind of thing here, sir.")
 		else
+			filename = match[1]
 			serveFile(filename, request, response)
 	catch e
 		LOG("Error handling request: "+e)
@@ -117,26 +116,18 @@ actionForStatus =
 	cannot_find: null
 
 
-# I wrapped all client output in try-catch, just in case it errors on premature
-# client disconnect, although I have never seen such errors!
 pipeStream = (filename,incomingResponse,cacheEntry) ->
 	LOG("<< Sending "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 	httpResponseHeaders = incomingResponse.headers
 	for client in cacheEntry.attachedClients
-		try client.writeHead(200, httpResponseHeaders)
-		catch e
-			LOG("Error on client.writeHead",e)
+		client.writeHead(200, httpResponseHeaders)
 	incomingResponse.on 'data', (data) ->
 		cacheEntry.blobsReceived.push(data)
 		for client in cacheEntry.attachedClients
-			try client.write(data)
-			catch e
-				LOG("Error on client.write",e)
+			client.write(data)
 	incomingResponse.on 'end', () ->
 		for client in cacheEntry.attachedClients
-			try client.end()
-			catch e
-				LOG("Error on client.end",e)
+			client.end()
 		LOG(" * Served "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 		LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
 		cacheEntry.attachedClients = []
