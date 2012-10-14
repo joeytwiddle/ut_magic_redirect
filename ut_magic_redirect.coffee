@@ -6,7 +6,8 @@ appName = "UT Magic Redirect"
 # This version does not cache retrieved files on disk anywhere, or have any persistent data.
 # However it does keep file data (blobs) in memory whilst the file is still streaming.
 
-# TODO: Write to and read from a disk-cache, and cache maintainance.
+# DONE: Write to and read from a disk-cache.
+# TODO: Cache maintainance.
 # TODO: Hold (persistent?) "hint" data, which tells us where we have previously seen a file, so we can try that redirect first and avoid hitting 404s on the others.
 
 fs = require('fs')
@@ -16,16 +17,20 @@ options =
 	listenPort: 4567
 	validPath: "/([^/]*\\.(u|uz|u..))"
 	# If you want to use this proxy for more general purpose mirroring, try validPath: "/(.*)"
+	# Note however, this will break disk-cache for any paths containing /
+	useDiskCache: false
 	redirectList: [
-		"http://5.45.182.78/uz/"
 		"http://uz.ut-files.com/"
 		"http://liandri.com/redirect/UT99/"
+		"http://5.45.182.78/uz/"
 		# ... add more here ...
 	]
 
 appStatus =
 	cache: {}
 
+
+fs.mkdir("cache")
 
 LOG = (x...) -> console.log("["+getDateString()+"]",x...)
 
@@ -108,11 +113,32 @@ Actions =
 		## We have given the client everything we got so far, but there may still be more to come
 		cacheEntry.attachedClients.push(response)
 
+	sendFromMem: (filename, cacheEntry, request, response) ->
+		LOG("<< Unusual!  Client joined while writing cache-file.  Sending blobs.")
+		httpResponseHeaders = {}
+		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
+		response.writeHead(200, httpResponseHeaders)
+		for data in cacheEntry.blobsReceived
+			response.write(data)
+		response.end()
+
+	sendFromDisk: (filename, cacheEntry, request, response) ->
+		cacheFile = getCacheFilename(filename)
+		LOG("<< Sending from disk: "+cacheFile)
+		httpResponseHeaders = {}
+		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
+		response.writeHead(200, httpResponseHeaders)
+		fs.readFile cacheFile, null, (err,data) ->
+			response.write(data)
+			response.end()
+			LOG(" * Wrote "+data.length+" bytes to "+request.socket.remoteAddress)
+
 
 actionForStatus =
 	unknown:     Actions.lookFor
 	in_progress: Actions.joinStream
-	on_disk:     null # Actions.sendFromDisk
+	writing_now: Actions.sendFromMem
+	on_disk:     Actions.sendFromDisk
 	cannot_find: null
 
 
@@ -129,19 +155,22 @@ pipeStream = (filename,incomingResponse,cacheEntry) ->
 		for client in cacheEntry.attachedClients
 			client.end()
 		LOG(" * Served "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
-		LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
 		cacheEntry.attachedClients = []
 		## Now we might want to write the blobs to a file
-		# ...
-		# cacheEntry.blobsReceived = []
-		# cacheEntry.status = "on_disk"
-		#
-		## For the moment, do nothing
-		cacheEntry.blobsReceived = []
-		cacheEntry.status = "unknown"
-		## We could keeps the blobs around, and set the status="in_memory"
-		## But we will want to clean up memory now and then!
-		## For that extra complexity, we may as well start maintaining a disk cache.
+		if options.useDiskCache
+			cacheEntry.status = "writing_now"
+			cacheFile = getCacheFilename(filename)
+			writeBlobsToFile cacheEntry.blobsReceived,cacheFile,() ->
+				LOG(" * Saved "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+") to file "+cacheFile)
+				cacheEntry.status = "on_disk"
+				cacheEntry.blobsReceived = []
+		else
+			LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
+			cacheEntry.status = "unknown"
+			cacheEntry.blobsReceived = []
+
+
+getCacheFilename = (filename) -> "cache/"+filename.replace("/","#","g")
 
 
 failWithError = (errCode,response,message) ->
@@ -152,6 +181,20 @@ failWithError = (errCode,response,message) ->
 
 sumLengths = (bloblist) ->
 	bloblist.map( (blob) -> blob.length ).reduce( (a,b) -> a+b )
+
+
+writeBlobsToFile = (blobs,filename,whenDone) ->
+	fs.open filename,"w", (err,fd) ->
+		i = 0
+		doBit = () ->
+			if i < blobs.length
+				fs.write(fd,blobs[i],0,blobs[i].length,null,afterBit)
+			else
+				fs.close(fd,whenDone)
+		afterBit = () ->
+			i++
+			doBit()
+		doBit()
 
 
 http.createServer(mainRequestHandler).listen(options.listenPort)
