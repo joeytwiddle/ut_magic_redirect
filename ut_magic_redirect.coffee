@@ -9,20 +9,40 @@ appName = "UT Magic Redirect"
 # TODO: Write to and read from a disk-cache, and cache maintainance.
 # TODO: Hold (persistent?) "hint" data, which tells us where we have previously seen a file, so we can try that redirect first and avoid hitting 404s on the others.
 
-listenPort = 4567
-
+fs = require('fs')
 http = require('http')
 
+configPath = "."
+
+optionsFile = configPath+"/options.conf"
+redirectsFile  = configPath+"/redirects.list"
+
+options =
+	listenPort: "4567"
+	validPath: "/([^/]\.(u|uz|u..))"
+
+try fs.readFileSync(optionsFile).split(/(\r|)\n/).forEach (line) ->
+	bits = line.split("/")
+	options[bits[0]] = bits[1]
+
+fs.writeFileSync(optionsFile, (for k,v of options then k+"="+v).join("\n") )
+
+try fs.readFileSync(redirectsFile).split(/(\r|)\n/)
+
+if !redirectList || !redirectList.length
+	redirectList = [
+		"http://uz.ut-files.com/"
+		"http://liandri.com/redirect/UT99/"
+		"http://5.45.182.78/uz/"
+		# ... add more here ...
+	]
+
+fs.writeFileSync(redirectsFile,redirectList.join("\r\n"))
+
+	# If you want to use this for more general purpose mirroring, try validPath: "(.*)"
 
 appStatus =
 	cache: {}
-	options:
-		redirectList: [
-			"http://uz.ut-files.com/"
-			"http://liandri.com/redirect/UT99/"
-			# ... add more here ...
-			"http://5.45.182.78/uz/"
-		]
 
 
 LOG = (x...) -> console.log(x...)
@@ -74,7 +94,7 @@ Actions =
 	lookFor: (filename, cacheEntry, request, response) ->
 		cacheEntry.status = "in_progress"
 		cacheEntry.attachedClients.push(response)
-		myList = appStatus.options.redirectList.slice(0)
+		myList = redirectList.slice(0)
 		tryNext = () ->
 			nextRedirect = myList.shift()
 			if !nextRedirect
@@ -162,7 +182,7 @@ sumLengths = (bloblist) ->
 	bloblist.map( (blob) -> blob.length ).reduce( (a,b) -> a+b )
 
 
-http.createServer(mainRequestHandler).listen(listenPort)
-LOG(appName+' running at http://127.0.0.1:'+listenPort+'/')
+http.createServer(mainRequestHandler).listen(options.listenPort)
+LOG(appName+' running at http://127.0.0.1:'+options.listenPort+'/')
 
 
