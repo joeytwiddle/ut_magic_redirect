@@ -16,8 +16,10 @@ http = require('http')
 options =
 	listenPort: 4567
 	validPath: "/([^/]*\\.(u|uz|u..))"
+	# We will only accept requests matching the validPath regexp.
+	# The matching part of the path inside the ()s will be appended to the redirect URLs.
 	# If you want to use this proxy for more general purpose mirroring, try validPath: "/(.*)"
-	# Note however, this will break disk-cache for any paths containing /
+	# Note however that getCacheFilename() may need support for weird chars.
 	useDiskCache: false
 	redirectList: [
 		"http://uz.ut-files.com/"
@@ -165,6 +167,7 @@ pipeStream = (filename,incomingResponse,cacheEntry) ->
 				cacheEntry.status = "on_disk"
 				cacheEntry.blobsReceived = []
 		else
+		## Otherwise we just forget them, to reclaim memory
 			LOG(" * Forgetting "+cacheEntry.blobsReceived.length+" blobs (size "+sumLengths(cacheEntry.blobsReceived)+")")
 			cacheEntry.status = "unknown"
 			cacheEntry.blobsReceived = []
@@ -174,7 +177,7 @@ getCacheFilename = (filename) -> "cache/"+filename.replace("/","#","g")
 
 
 failWithError = (errCode,response,message) ->
-	LOG("Failing client "+request.socket.remoteAddress+" with: "+message)
+	LOG("Failing client "+response.socket.remoteAddress+" with: "+message)
 	response.writeHead(errCode,"text/plain")
 	response.end(message+"\n")
 
@@ -186,15 +189,15 @@ sumLengths = (bloblist) ->
 writeBlobsToFile = (blobs,filename,whenDone) ->
 	fs.open filename,"w", (err,fd) ->
 		i = 0
-		doBit = () ->
+		doNextBit = () ->
 			if i < blobs.length
 				fs.write(fd,blobs[i],0,blobs[i].length,null,afterBit)
 			else
 				fs.close(fd,whenDone)
 		afterBit = () ->
 			i++
-			doBit()
-		doBit()
+			doNextBit()
+		doNextBit()
 
 
 http.createServer(mainRequestHandler).listen(options.listenPort)
