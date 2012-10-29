@@ -3,40 +3,56 @@ appName = "UT Magic Redirect"
 # A UT redirect server which can serve files sourced from multiple remote redirects.
 # Copyright 2012 Paul Clark released under AGPL
 
-# This version does not cache retrieved files on disk anywhere, or have any persistent data.
-# However it does keep file data (blobs) in memory whilst the file is still streaming.
+# Keeps file data (blobs) in memory whilst the file is still streaming.
 
 # DONE: Write to and read from a disk-cache.
 # TODO: Cache maintainance.
 # TODO: Hold (persistent?) "hint" data, which tells us where we have previously seen a file, so we can try that redirect first and avoid hitting 404s on the others.
+# DONE: Better header passing so Unreal doesn't barf on the files it receives.  Saved in cacheEntry.responseHeaders.
+# DONE: Require absolute path to cacheDir because initscript does not provide working folder.
+# DONE: doNotCacheFrom may be used to prevent caching from one of the redirects
 
 fs = require('fs')
 http = require('http')
+urllib = require('url')
 
 options =
 	listenPort: 4567
 	validPath: "/([^/]*\\.(u|uz|u..))"
 	# We will only accept requests matching the validPath regexp.
-	# The matching part of the path inside the ()s will be appended to the redirect URLs.
+	# The matching part of the path inside the ()s is the filename; this will be appended to the redirect URLs.
 	# If you want to use this proxy for more general purpose mirroring, try validPath: "/(.*)"
 	# Note however that getCacheFilename() may need support for weird chars.
 	useDiskCache: false
+	cacheDir: "/home/redirect/cache"
 	redirectList: [
+		"http://localhost/uz/"
 		"http://uz.ut-files.com/"
 		"http://liandri.com/redirect/UT99/"
-		"http://5.45.182.78/uz/"
 		# ... add more here ...
 	]
+	doNotCacheFrom: "http://localhost/uz/"
 
 appStatus =
 	cache: {}
 
 
-fs.mkdir("cache")
+
+if options.useDiskCache
+	fs.readdir options.cacheDir, (err,files) ->
+		if err
+			fs.mkdirSync options.cacheDir, undefined, (err2) ->
+				LOG("Error creating directory: "+options.cacheDir)
+				console.log(err2)
+		else
+			LOG("Cache folder exists with "+files.length+" files.")
+
+
 
 LOG = (x...) -> console.log("["+getDateString()+"]",x...)
 
 getDateString = -> Date().split(" ").slice(1,5).join(" ")
+
 
 
 mainRequestHandler = (request, response) ->
@@ -88,12 +104,18 @@ Actions =
 				LOG("Failed to find \""+filename+"\" on any redirect, aborting "+cacheEntry.attachedClients.length+" clients.")
 				cacheEntry.status = "cannot_find"
 				for client in cacheEntry.attachedClients
-					failWithError(404,client,"Sorry, not found on any redirects: "+filename)
+					failWithError(404,client,null)   # "Sorry, not found on any redirects: "+filename)
 			else
 				targetHost = nextRedirect.split("/")[2]
 				targetURL = nextRedirect + filename
 				LOG("|| >> GET "+targetURL)
-				outgoingRequest = http.request targetURL, (incomingResponse) ->
+				reqOpts = urllib.parse(targetURL)
+				reqOpts.headers = request.headers
+				delete reqOpts.headers.host
+				# delete reqOpts.headers.Host
+				# console.log("|| Request options:")
+				# console.log(reqOpts)
+				outgoingRequest = http.request reqOpts, (incomingResponse) ->
 					LOG("|| << Got response "+incomingResponse.statusCode)
 					if incomingResponse.statusCode != 200
 						LOG(" - That's a failure.")
@@ -101,15 +123,13 @@ Actions =
 					else
 						## Someone is giving us a file - yippee!
 						LOG(" * Found "+filename+" on "+nextRedirect)
-						pipeStream(filename,incomingResponse,cacheEntry)
+						pipeStream(filename,incomingResponse,cacheEntry,nextRedirect == options.doNotCacheFrom)
 				outgoingRequest.end()
 		tryNext()
 
 	joinStream: (filename, cacheEntry, request, response) ->
 		LOG("<< New client joining stream for "+filename+", sending "+cacheEntry.blobsReceived.length+" blobs.")
-		httpResponseHeaders = {}
-		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
-		response.writeHead(200, httpResponseHeaders)
+		response.writeHead(200, cacheEntry.responseHeaders)
 		for data in cacheEntry.blobsReceived
 			response.write(data)
 		## We have given the client everything we got so far, but there may still be more to come
@@ -117,9 +137,7 @@ Actions =
 
 	sendFromMem: (filename, cacheEntry, request, response) ->
 		LOG("<< Unusual!  Client joined while writing cache-file.  Sending blobs.")
-		httpResponseHeaders = {}
-		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
-		response.writeHead(200, httpResponseHeaders)
+		response.writeHead(200, cacheEntry.responseHeaders)
 		for data in cacheEntry.blobsReceived
 			response.write(data)
 		response.end()
@@ -127,9 +145,7 @@ Actions =
 	sendFromDisk: (filename, cacheEntry, request, response) ->
 		cacheFile = getCacheFilename(filename)
 		LOG("<< Sending from disk: "+cacheFile)
-		httpResponseHeaders = {}
-		httpResponseHeaders["content-type"] = "data/plain" # I dunno :P
-		response.writeHead(200, httpResponseHeaders)
+		response.writeHead(200, cacheEntry.responseHeaders)
 		fs.readFile cacheFile, null, (err,data) ->
 			response.write(data)
 			response.end()
@@ -144,9 +160,10 @@ actionForStatus =
 	cannot_find: null
 
 
-pipeStream = (filename,incomingResponse,cacheEntry) ->
+pipeStream = (filename,incomingResponse,cacheEntry,dontCache) ->
 	LOG("<< Sending "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 	httpResponseHeaders = incomingResponse.headers
+	cacheEntry.responseHeaders = httpResponseHeaders
 	for client in cacheEntry.attachedClients
 		client.writeHead(200, httpResponseHeaders)
 	incomingResponse.on 'data', (data) ->
@@ -159,7 +176,7 @@ pipeStream = (filename,incomingResponse,cacheEntry) ->
 		LOG(" * Served "+filename+" to "+cacheEntry.attachedClients.length+" clients.")
 		cacheEntry.attachedClients = []
 		## Now we might want to write the blobs to a file
-		if options.useDiskCache
+		if options.useDiskCache && !dontCache
 			cacheEntry.status = "writing_now"
 			cacheFile = getCacheFilename(filename)
 			writeBlobsToFile cacheEntry.blobsReceived,cacheFile,() ->
@@ -173,13 +190,16 @@ pipeStream = (filename,incomingResponse,cacheEntry) ->
 			cacheEntry.blobsReceived = []
 
 
-getCacheFilename = (filename) -> "cache/"+filename.replace("/","#","g")
+getCacheFilename = (filename) -> options.cacheDir + "/" + filename.replace("/","#","g")
 
 
 failWithError = (errCode,response,message) ->
 	LOG("Failing client "+response.socket.remoteAddress+" with: "+message)
 	response.writeHead(errCode,"text/plain")
-	response.end(message+"\n")
+	if message == null
+		response.end()
+	else
+		response.end(message+"\n")
 
 
 sumLengths = (bloblist) ->
