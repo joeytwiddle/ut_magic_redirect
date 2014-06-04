@@ -65,3 +65,8 @@ Finally, Debian users can include it in the system statup with:
     % update-rc.d ut_magic_redirect defaults
 
 
+# Alternatives
+
+There are some other similar proxying redirects available.  See here: http://www.unrealadmin.org/forums/archive/index.php/t-21554.html
+
+ut_magic_redirect itself can be discussed here: http://www.unrealadmin.org/forums/showthread.php?t=31067
